@@ -1,0 +1,31 @@
+# =============================================================================
+# CopLLM — Schnellstart (Weg A)
+# Nur Open WebUI + Anthropic API, keine weiteren Abhaengigkeiten
+# Start: docker compose -f docker-compose.quick.yml up -d
+# =============================================================================
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui
+    restart: unless-stopped
+    ports:
+      - "${OPENWEBUI_PORT:-3000}:8080"
+    environment:
+      - OPENAI_API_BASE_URLS=https://api.anthropic.com/v1
+      - OPENAI_API_KEYS=${ANTHROPIC_API_KEY}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - ENABLE_RAG_WEB_SEARCH=false
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=nomic-embed-text
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KEY:-change-me}
+      - ENABLE_SIGNUP=false
+    volumes:
+      - open-webui-data:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  open-webui-data:

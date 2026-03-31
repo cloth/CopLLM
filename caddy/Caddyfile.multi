@@ -1,0 +1,86 @@
+# =============================================================================
+# CopLLM — Multi-Kunden Caddy Config
+# Jede Kunden-Domain wird auf die richtige Open WebUI Instanz geroutet
+#
+# Neuen Kunden hinzufuegen:
+#   1. Block unten kopieren
+#   2. Domain und Container-Name anpassen
+#   3. caddy reload oder docker compose restart caddy
+# =============================================================================
+
+# Shared Security Headers
+(security_headers) {
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+}
+
+# Shared Logging
+(access_log) {
+    log {
+        output file /data/access-{args[0]}.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
+
+# =========================================================================
+# n8n (Workflow-Editor — nur fuer dich, nicht fuer Kunden)
+# =========================================================================
+n8n.clx-digital.de {
+    import security_headers
+    import access_log n8n
+
+    # Optional: IP-Whitelist fuer Extra-Sicherheit
+    # @blocked not remote_ip 1.2.3.4
+    # respond @blocked "Forbidden" 403
+
+    reverse_proxy copllm-n8n:5678
+}
+
+# =========================================================================
+# CLX DIGITAL (eigene Demo)
+# =========================================================================
+ai.clx-digital.de {
+    import security_headers
+    import access_log clx
+
+    reverse_proxy copllm-webui-clx:8080
+}
+
+# =========================================================================
+# KUNDE A
+# DNS: A-Record fuer ki.kunde-a.de → Server-IP
+# =========================================================================
+ki.kunde-a.de {
+    import security_headers
+    import access_log kunde-a
+
+    reverse_proxy copllm-webui-kunde-a:8080
+}
+
+# =========================================================================
+# KUNDE B
+# DNS: A-Record fuer ki.kunde-b.de → Server-IP
+# =========================================================================
+ki.kunde-b.de {
+    import security_headers
+    import access_log kunde-b
+
+    reverse_proxy copllm-webui-kunde-b:8080
+}
+
+# =========================================================================
+# NEUER KUNDE — KOPIERVORLAGE
+# =========================================================================
+# ki.neuer-kunde.de {
+#     import security_headers
+#     import access_log neuer-kunde
+#
+#     reverse_proxy copllm-webui-neuer-kunde:8080
+# }

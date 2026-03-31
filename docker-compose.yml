@@ -1,0 +1,74 @@
+# =============================================================================
+# CopLLM — Vollstaendiger Produktions-Stack (Weg C)
+# Open WebUI + LiteLLM + Caddy Reverse Proxy
+# Start: cp .env.example .env && docker compose up -d
+# =============================================================================
+
+services:
+  # --- Reverse Proxy (HTTPS) ---
+  caddy:
+    image: caddy:2-alpine
+    container_name: copllm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - copllm-net
+
+  # --- Chat-Interface ---
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KEY:-change-me}
+      - ENABLE_SIGNUP=false
+    volumes:
+      - open-webui-data:/app/backend/data
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # --- LLM Router ---
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: copllm-litellm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  caddy-data:
+  caddy-config:
+  open-webui-data:
+
+networks:
+  copllm-net:
+    driver: bridge

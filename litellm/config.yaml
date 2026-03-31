@@ -1,0 +1,81 @@
+# =============================================================================
+# CopLLM — LiteLLM Router-Konfiguration
+# Modell-Routing mit Kostenoptimierung und Fallback
+# Docs: https://docs.litellm.ai/docs/
+# =============================================================================
+
+model_list:
+  # --- Anthropic Claude (Hauptmodelle) ---
+  - model_name: "claude-sonnet"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-20250514"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      max_tokens: 4096
+      temperature: 0.3
+
+  - model_name: "claude-opus"
+    litellm_params:
+      model: "anthropic/claude-opus-4-20250514"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      max_tokens: 4096
+      temperature: 0.2
+
+  - model_name: "claude-haiku"
+    litellm_params:
+      model: "anthropic/claude-haiku-4-5-20251001"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      max_tokens: 4096
+      temperature: 0.3
+
+  # --- Ollama Lokal (Fallback / DSGVO-sicher) ---
+  - model_name: "llama-local"
+    litellm_params:
+      model: "ollama/llama3.3"
+      api_base: "os.environ/OLLAMA_BASE_URL"
+      max_tokens: 4096
+      temperature: 0.4
+      stream: true
+
+  # --- Default-Modell (Open WebUI Standard) ---
+  - model_name: "copllm-default"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-20250514"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      max_tokens: 4096
+      temperature: 0.3
+
+# --- Router-Einstellungen ---
+router_settings:
+  routing_strategy: "cost-based-routing"
+
+  # Fallback-Kette: Wenn Claude nicht erreichbar → Ollama
+  fallbacks:
+    - "claude-opus": ["claude-sonnet", "llama-local"]
+    - "claude-sonnet": ["llama-local"]
+    - "claude-haiku": ["llama-local"]
+    - "copllm-default": ["llama-local"]
+
+  num_retries: 2
+  retry_after: 5
+  timeout: 120
+  allowed_fails: 3
+  cooldown_time: 60
+
+# --- Allgemeine Einstellungen ---
+litellm_settings:
+  set_verbose: false
+  drop_params: true
+
+  # Budget-Limit (Sicherheitsnetz fuer Demo)
+  max_budget: 50.0
+  budget_duration: "1mo"
+
+  # Cache fuer wiederholte Fragen
+  cache: true
+  cache_params:
+    type: "local"
+    ttl: 3600
+
+# --- API-Zugang ---
+general_settings:
+  master_key: "os.environ/LITELLM_MASTER_KEY"

@@ -1,0 +1,296 @@
+{
+  "name": "CopLLM — Google Drive & OneDrive Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute", "value": 5 }]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": "={{ $env.GOOGLE_DRIVE_FOLDER_ID }}",
+        "event": "fileCreated"
+      },
+      "id": "trigger-gdrive-created",
+      "name": "Google Drive — Neue Datei",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [200, 200],
+      "credentials": {
+        "googleDriveOAuth2Api": { "id": "GOOGLE_DRIVE_CRED_ID", "name": "Google Drive" }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute", "value": 5 }]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": "={{ $env.GOOGLE_DRIVE_FOLDER_ID }}",
+        "event": "fileUpdated"
+      },
+      "id": "trigger-gdrive-updated",
+      "name": "Google Drive — Datei geaendert",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [200, 400],
+      "credentials": {
+        "googleDriveOAuth2Api": { "id": "GOOGLE_DRIVE_CRED_ID", "name": "Google Drive" }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        }
+      },
+      "id": "trigger-onedrive-poll",
+      "name": "OneDrive — Poll (5 Min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 600]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://graph.microsoft.com/v1.0/me/drive/root:{{ $env.ONEDRIVE_FOLDER_PATH }}:/delta",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "response": { "response": { "fullResponse": true } }
+        }
+      },
+      "id": "onedrive-delta",
+      "name": "OneDrive — Delta API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 600],
+      "credentials": {
+        "oAuth2Api": { "id": "ONEDRIVE_CRED_ID", "name": "OneDrive OAuth2" }
+      },
+      "notes": "Delta-Token wird in Static Data gespeichert. Beim ersten Lauf: Alle Dateien. Danach: Nur Aenderungen."
+    },
+    {
+      "parameters": {
+        "jsCode": "// OneDrive Delta-Ergebnisse verarbeiten\n// Erkennt: neue Dateien, geaenderte Dateien, geloeschte Dateien\n\nconst deltaResponse = $input.first().json;\nconst items = deltaResponse.body?.value || [];\nconst results = [];\n\nfor (const item of items) {\n  // Ordner ueberspringen\n  if (item.folder) continue;\n  \n  // Geloeschte Dateien erkennen\n  if (item.deleted) {\n    results.push({\n      json: {\n        action: 'delete',\n        source: 'onedrive',\n        source_id: item.id,\n        file_name: item.name || 'unbekannt'\n      }\n    });\n    continue;\n  }\n  \n  // Nur unterstuetzte Dateitypen\n  const name = item.name || '';\n  const ext = name.split('.').pop().toLowerCase();\n  if (!['pdf', 'docx', 'doc', 'txt', 'md', 'csv'].includes(ext)) continue;\n  \n  results.push({\n    json: {\n      action: item['@microsoft.graph.downloadUrl'] ? 'add_or_update' : 'add_or_update',\n      source: 'onedrive',\n      source_id: item.id,\n      file_name: item.name,\n      mime_type: item.file?.mimeType || '',\n      download_url: item['@microsoft.graph.downloadUrl'] || '',\n      modified_at: item.lastModifiedDateTime || ''\n    }\n  });\n}\n\n// Delta-Token fuer naechsten Lauf speichern\nconst deltaLink = deltaResponse.body?.['@odata.deltaLink'];\nif (deltaLink) {\n  const staticData = $getWorkflowStaticData('global');\n  staticData.onedriveDeltaToken = deltaLink;\n}\n\nreturn results.length > 0 ? results : [{ json: { action: 'none' } }];"
+      },
+      "id": "onedrive-parse-delta",
+      "name": "OneDrive — Delta parsen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 600]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            { "id": "is-delete", "leftValue": "={{ $json.action }}", "rightValue": "delete", "operator": { "type": "string", "operation": "equals" } },
+            { "id": "is-add", "leftValue": "={{ $json.action }}", "rightValue": "add_or_update", "operator": { "type": "string", "operation": "equals" } },
+            { "id": "is-none", "leftValue": "={{ $json.action }}", "rightValue": "none", "operator": { "type": "string", "operation": "equals" } }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "switch-action",
+      "name": "Aktion?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [860, 400]
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/documents?source=eq.{{ $json.source }}&source_id=eq.{{ $json.source_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        }
+      },
+      "id": "delete-old-chunks",
+      "name": "Alte Chunks loeschen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.source_id }}"
+      },
+      "id": "download-gdrive",
+      "name": "Google Drive — Download",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1300, 200],
+      "credentials": {
+        "googleDriveOAuth2Api": { "id": "GOOGLE_DRIVE_CRED_ID", "name": "Google Drive" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.download_url }}",
+        "options": { "response": { "response": { "responseFormat": "file" } } }
+      },
+      "id": "download-onedrive",
+      "name": "OneDrive — Download",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Text aus PDF, DOCX, TXT extrahieren\n// Bei gescannten PDFs: Gemini Embedding 2 (multimodal) nutzen\n// Bei PDFs > 6 Seiten: In 6-Seiten-Bloecke splitten\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const fileName = item.json.file_name || item.json.name || 'unbekannt';\n  const ext = fileName.split('.').pop().toLowerCase();\n  let text = '';\n  let pdfPages = 0;\n  let pdfChunksBase64 = []; // Fuer Gemini Multimodal: PDF-Bloecke als Base64\n  \n  try {\n    if (item.binary && item.binary.data) {\n      const buffer = await this.helpers.getBinaryDataBuffer(item, 'data');\n      \n      if (ext === 'pdf') {\n        const pdfParse = require('pdf-parse');\n        const pdfData = await pdfParse(buffer);\n        text = pdfData.text || '';\n        pdfPages = pdfData.numpages || 0;\n        \n        // Gescanntes PDF erkannt (kaum Text)\n        if (text.trim().length < 50) {\n          text = '[OCR_NEEDED] ' + text;\n          \n          // PDF als Base64 fuer Gemini Embedding 2 vorbereiten\n          // Bei > 6 Seiten: In Bloecke splitten\n          const base64Full = buffer.toString('base64');\n          \n          if (pdfPages <= 6) {\n            // Passt komplett in einen Gemini-Call\n            pdfChunksBase64.push({\n              data: base64Full,\n              pages: `1-${pdfPages}`,\n              block_index: 0\n            });\n          } else {\n            // PDF hat > 6 Seiten → muss gesplittet werden\n            // pdf-lib zum Splitten verwenden\n            try {\n              const { PDFDocument } = require('pdf-lib');\n              const srcDoc = await PDFDocument.load(buffer);\n              const totalPages = srcDoc.getPageCount();\n              const blockSize = 6;\n              \n              for (let start = 0; start < totalPages; start += blockSize) {\n                const end = Math.min(start + blockSize, totalPages);\n                const newDoc = await PDFDocument.create();\n                const pages = await newDoc.copyPages(srcDoc, \n                  Array.from({ length: end - start }, (_, i) => start + i)\n                );\n                pages.forEach(p => newDoc.addPage(p));\n                const newPdfBytes = await newDoc.save();\n                const blockBase64 = Buffer.from(newPdfBytes).toString('base64');\n                \n                pdfChunksBase64.push({\n                  data: blockBase64,\n                  pages: `${start + 1}-${end}`,\n                  block_index: pdfChunksBase64.length\n                });\n              }\n            } catch (splitErr) {\n              // Fallback: Gesamtes PDF als einen Block senden\n              // (Gemini wird die ersten 6 Seiten verarbeiten)\n              pdfChunksBase64.push({\n                data: base64Full,\n                pages: `1-${Math.min(6, pdfPages)}`,\n                block_index: 0,\n                split_error: splitErr.message\n              });\n            }\n          }\n        }\n      } else if (ext === 'docx' || ext === 'doc') {\n        const mammoth = require('mammoth');\n        const result = await mammoth.extractRawText({ buffer });\n        text = result.value || '';\n      } else if (['txt', 'md', 'csv'].includes(ext)) {\n        text = buffer.toString('utf-8');\n      }\n    }\n  } catch (err) {\n    text = `[EXTRACTION_ERROR] ${err.message}`;\n  }\n  \n  results.push({\n    json: {\n      ...item.json,\n      extracted_text: text,\n      text_length: text.length,\n      pdf_pages: pdfPages,\n      needs_ocr: text.startsWith('[OCR_NEEDED]'),\n      pdf_chunks_base64: pdfChunksBase64, // Leer bei Text-PDFs/DOCX/TXT\n      pdf_block_count: pdfChunksBase64.length\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "extract-text",
+      "name": "Text extrahieren (+ OCR-Check)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Text in Chunks aufteilen\n// Chunk-Groesse und Overlap aus .env oder Default\n\nconst text = $input.first().json.extracted_text || '';\nconst chunkSize = parseInt($env.CHUNK_SIZE) || 500;\nconst overlap = parseInt($env.CHUNK_OVERLAP) || 75;\n\nif (!text || text.length < 10) {\n  return [{ json: { skip: true, reason: 'Kein Text extrahiert' } }];\n}\n\nconst chunks = [];\nlet start = 0;\nlet index = 0;\n\nwhile (start < text.length) {\n  const end = Math.min(start + chunkSize, text.length);\n  let chunk = text.slice(start, end);\n  \n  // Am Satzende oder Zeilenumbruch schneiden wenn moeglich\n  if (end < text.length) {\n    const lastPeriod = chunk.lastIndexOf('.');\n    const lastNewline = chunk.lastIndexOf('\\n');\n    const cutPoint = Math.max(lastPeriod, lastNewline);\n    if (cutPoint > chunkSize * 0.6) {\n      chunk = chunk.slice(0, cutPoint + 1);\n    }\n  }\n  \n  const trimmed = chunk.trim();\n  if (trimmed.length > 10) {\n    chunks.push({\n      json: {\n        content: trimmed,\n        chunk_index: index,\n        file_name: $input.first().json.file_name || $input.first().json.name,\n        source_id: $input.first().json.source_id || $input.first().json.id,\n        source: $input.first().json.source || 'google_drive',\n        mime_type: $input.first().json.mime_type || $input.first().json.mimeType || '',\n        file_path: $input.first().json.file_path || $input.first().json.path || '',\n        source_modified_at: $input.first().json.modified_at || $input.first().json.modifiedTime || new Date().toISOString()\n      }\n    });\n    index++;\n  }\n  \n  start += trimmed.length - overlap;\n  if (start <= 0 && index > 0) break; // Sicherheit gegen Endlosschleife\n}\n\nreturn chunks;"
+      },
+      "id": "chunk-text",
+      "name": "Text in Chunks aufteilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Embedding generieren — konfigurierbar:\n// EMBEDDING_PROVIDER=ollama (lokal) oder google oder openai\n//\n// Bei gescannten PDFs (needs_ocr=true):\n// → Automatisch gemini-embedding-2-preview nutzen (multimodal)\n// → PDFs > 6 Seiten werden vorher in Bloecke gesplittet\n\nconst item = $input.first().json;\nconst provider = ($env.EMBEDDING_PROVIDER || 'ollama').toLowerCase();\nconst content = item.content;\nconst needsOcr = item.needs_ocr || false;\nconst pdfChunks = item.pdf_chunks_base64 || [];\nconst dim = parseInt($env.EMBEDDING_DIMENSION) || 768;\nconst apiKey = $env.GOOGLE_AI_API_KEY;\n\n// --- Fall 1: Gescanntes PDF → Gemini Embedding 2 (multimodal, direkt PDF) ---\nif (needsOcr && pdfChunks.length > 0 && apiKey) {\n  const results = [];\n  \n  for (const block of pdfChunks) {\n    try {\n      const response = await this.helpers.httpRequest({\n        method: 'POST',\n        url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2-preview:embedContent?key=${apiKey}`,\n        body: {\n          model: 'models/gemini-embedding-2-preview',\n          content: {\n            parts: [{\n              inline_data: {\n                mime_type: 'application/pdf',\n                data: block.data\n              }\n            }]\n          },\n          output_dimensionality: dim\n        },\n        json: true\n      });\n      \n      const embedding = response.embedding.values;\n      results.push({\n        json: {\n          ...item,\n          content: `[PDF Seiten ${block.pages}] ${item.file_name}`,\n          chunk_index: block.block_index,\n          embedding: '[' + embedding.join(',') + ']',\n          embedding_method: 'gemini-multimodal',\n          pdf_pages_range: block.pages\n        }\n      });\n      \n      // Pause zwischen Bloecken (Rate Limit schonen)\n      if (pdfChunks.length > 1) {\n        await new Promise(r => setTimeout(r, 1000));\n      }\n    } catch (err) {\n      results.push({\n        json: { ...item, embedding_error: `Gemini Block ${block.pages}: ${err.message}` }\n      });\n    }\n  }\n  \n  return results;\n}\n\n// --- Fall 2: Text-Dokumente → normales Embedding ---\nlet embedding = [];\n\ntry {\n  if (provider === 'ollama') {\n    const ollamaUrl = $env.OLLAMA_BASE_URL || 'http://localhost:11434';\n    const model = $env.EMBEDDING_MODEL || 'nomic-embed-text';\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${ollamaUrl}/api/embeddings`,\n      body: { model, prompt: content },\n      json: true\n    });\n    embedding = response.embedding;\n    \n  } else if (provider === 'google') {\n    const model = $env.GOOGLE_EMBEDDING_MODEL || 'gemini-embedding-001';\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,\n      body: {\n        model: `models/${model}`,\n        content: { parts: [{ text: content }] },\n        taskType: 'RETRIEVAL_DOCUMENT',\n        output_dimensionality: dim\n      },\n      json: true\n    });\n    embedding = response.embedding.values;\n    \n  } else if (provider === 'openai') {\n    const openaiKey = $env.OPENAI_API_KEY;\n    const model = $env.EMBEDDING_MODEL || 'text-embedding-3-small';\n    const response = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/embeddings',\n      headers: { 'Authorization': `Bearer ${openaiKey}` },\n      body: { model, input: content },\n      json: true\n    });\n    embedding = response.data[0].embedding;\n  }\n} catch (err) {\n  return [{ json: { ...item, embedding_error: err.message } }];\n}\n\nreturn [{\n  json: {\n    ...item,\n    embedding: '[' + embedding.join(',') + ']',\n    embedding_method: provider\n  }\n}];"
+      },
+      "id": "generate-embedding",
+      "name": "Embedding generieren (Ollama/Google/OpenAI)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 350],
+      "notes": "Konfigurierbar via EMBEDDING_PROVIDER env var: ollama, google, openai"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/documents",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"{{ $json.source }}\",\n  \"source_id\": \"{{ $json.source_id }}\",\n  \"file_name\": \"{{ $json.file_name }}\",\n  \"file_path\": \"{{ $json.file_path }}\",\n  \"mime_type\": \"{{ $json.mime_type }}\",\n  \"content\": {{ JSON.stringify($json.content) }},\n  \"chunk_index\": {{ $json.chunk_index }},\n  \"embedding\": \"{{ $json.embedding }}\",\n  \"source_modified_at\": \"{{ $json.source_modified_at }}\",\n  \"metadata\": {}\n}"
+      },
+      "id": "insert-supabase",
+      "name": "In Supabase speichern",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2180, 350]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sync_log",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source\": \"{{ $json.source }}\",\n  \"action\": \"{{ $json.action || 'add' }}\",\n  \"source_id\": \"{{ $json.source_id }}\",\n  \"file_name\": \"{{ $json.file_name }}\",\n  \"chunks_count\": {{ $json.chunk_index + 1 || 0 }},\n  \"status\": \"success\"\n}"
+      },
+      "id": "log-sync",
+      "name": "Sync-Log schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 350]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=CopLLM Sync:\nAktion: {{ $json.action || 'add' }}\nDatei: {{ $json.file_name }}\nQuelle: {{ $json.source }}\nStatus: OK",
+        "additionalFields": {}
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2620, 350],
+      "credentials": {
+        "telegramApi": { "id": "TELEGRAM_CRED_ID", "name": "Telegram Bot" }
+      }
+    }
+  ],
+  "connections": {
+    "Google Drive — Neue Datei": {
+      "main": [[{ "node": "Aktion?", "type": "main", "index": 0 }]]
+    },
+    "Google Drive — Datei geaendert": {
+      "main": [[{ "node": "Alte Chunks loeschen", "type": "main", "index": 0 }]]
+    },
+    "OneDrive — Poll (5 Min)": {
+      "main": [[{ "node": "OneDrive — Delta API", "type": "main", "index": 0 }]]
+    },
+    "OneDrive — Delta API": {
+      "main": [[{ "node": "OneDrive — Delta parsen", "type": "main", "index": 0 }]]
+    },
+    "OneDrive — Delta parsen": {
+      "main": [[{ "node": "Aktion?", "type": "main", "index": 0 }]]
+    },
+    "Aktion?": {
+      "main": [
+        [{ "node": "Alte Chunks loeschen", "type": "main", "index": 0 }],
+        [{ "node": "Text extrahieren (+ OCR-Check)", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Alte Chunks loeschen": {
+      "main": [[{ "node": "Google Drive — Download", "type": "main", "index": 0 }]]
+    },
+    "Google Drive — Download": {
+      "main": [[{ "node": "Text extrahieren (+ OCR-Check)", "type": "main", "index": 0 }]]
+    },
+    "OneDrive — Download": {
+      "main": [[{ "node": "Text extrahieren (+ OCR-Check)", "type": "main", "index": 0 }]]
+    },
+    "Text extrahieren (+ OCR-Check)": {
+      "main": [[{ "node": "Text in Chunks aufteilen", "type": "main", "index": 0 }]]
+    },
+    "Text in Chunks aufteilen": {
+      "main": [[{ "node": "Embedding generieren (Ollama/Google/OpenAI)", "type": "main", "index": 0 }]]
+    },
+    "Embedding generieren (Ollama/Google/OpenAI)": {
+      "main": [[{ "node": "In Supabase speichern", "type": "main", "index": 0 }]]
+    },
+    "In Supabase speichern": {
+      "main": [[{ "node": "Sync-Log schreiben", "type": "main", "index": 0 }]]
+    },
+    "Sync-Log schreiben": {
+      "main": [[{ "node": "Telegram Benachrichtigung", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "CopLLM" }, { "name": "RAG" }, { "name": "Sync" }]
+}

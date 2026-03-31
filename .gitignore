@@ -1,0 +1,39 @@
+# Secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Claude Code
+.claude/
+
+# Docker Volumes
+data/
+volumes/
+
+# n8n Daten
+n8n/data/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Temporaere Dateien
+*.tmp
+*.bak
+*.orig
+
+# Node (falls LiteLLM/Tools lokal getestet werden)
+node_modules/

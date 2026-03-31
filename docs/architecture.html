@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CopLLM — Systemarchitektur &amp; Datenfluss</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e2e4e9;
+    --text-dim: #8b8fa3;
+    --accent-blue: #4d8eff;
+    --accent-green: #34d399;
+    --accent-purple: #a78bfa;
+    --accent-orange: #fb923c;
+    --accent-pink: #f472b6;
+    --accent-cyan: #22d3ee;
+    --accent-red: #f87171;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 2rem 1rem 1rem;
+  }
+  .header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .header p {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+  }
+
+  /* Flow Toggle */
+  .flow-toggle {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    flex-wrap: wrap;
+  }
+  .flow-btn {
+    padding: 0.5rem 1.2rem;
+    border: 1px solid var(--border);
+    border-radius: 2rem;
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.3s;
+    font-family: inherit;
+  }
+  .flow-btn:hover { border-color: var(--accent-blue); color: var(--text); }
+  .flow-btn.active {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: #fff;
+  }
+
+  /* Canvas Container */
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+    aspect-ratio: 11 / 7;
+  }
+
+  svg.diagram {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Nodes */
+  .node-group { cursor: pointer; }
+  .node-group:hover .node-box { filter: brightness(1.2); }
+  .node-box {
+    rx: 12;
+    ry: 12;
+    transition: filter 0.3s;
+  }
+  .node-icon {
+    font-size: 24px;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+  .node-label {
+    fill: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .node-sublabel {
+    fill: var(--text-dim);
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+
+  /* Edges */
+  .edge {
+    fill: none;
+    stroke-width: 2;
+    opacity: 0.15;
+    transition: opacity 0.5s;
+  }
+  .edge.active { opacity: 0.6; }
+  .edge.highlight { opacity: 1; stroke-width: 3; }
+
+  /* Particles */
+  .particle {
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .particle.active { opacity: 1; }
+
+  /* Flow Description */
+  .flow-desc {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 1.5rem;
+  }
+  .flow-desc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    display: none;
+  }
+  .flow-desc-card.active { display: block; }
+  .flow-desc-card h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .flow-desc-card .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .step-text { color: var(--text-dim); }
+  .step-text strong { color: var(--text); }
+
+  /* Legend */
+  .legend {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 1.5rem 2rem;
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 100;
+    max-width: 250px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip h4 { margin-bottom: 0.25rem; font-size: 0.85rem; }
+  .tooltip p { color: var(--text-dim); line-height: 1.4; }
+
+  @media (max-width: 768px) {
+    .header h1 { font-size: 1.3rem; }
+    .canvas-wrap { aspect-ratio: 11 / 9; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>CopLLM Systemarchitektur</h1>
+  <p>Corporate AI Workspace — Datenfluss und Systeminteraktion</p>
+</div>
+
+<div class="flow-toggle">
+  <button class="flow-btn active" data-flow="all">Gesamtansicht</button>
+  <button class="flow-btn" data-flow="sync">Dokument-Sync</button>
+  <button class="flow-btn" data-flow="query">User-Anfrage</button>
+  <button class="flow-btn" data-flow="ocr">OCR / Scan-Pipeline</button>
+</div>
+
+<div class="canvas-wrap">
+  <svg class="diagram" viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- Glow Filter -->
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+
+      <!-- Particle Gradients -->
+      <radialGradient id="particle-blue"><stop offset="0%" stop-color="#4d8eff"/><stop offset="100%" stop-color="#4d8eff" stop-opacity="0"/></radialGradient>
+      <radialGradient id="particle-green"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#34d399" stop-opacity="0"/></radialGradient>
+      <radialGradient id="particle-purple"><stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/></radialGradient>
+      <radialGradient id="particle-orange"><stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#fb923c" stop-opacity="0"/></radialGradient>
+      <radialGradient id="particle-pink"><stop offset="0%" stop-color="#f472b6"/><stop offset="100%" stop-color="#f472b6" stop-opacity="0"/></radialGradient>
+      <radialGradient id="particle-cyan"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/></radialGradient>
+    </defs>
+
+    <!-- ===== EDGES ===== -->
+    <g id="edges">
+      <!-- Sync Flow: Google Drive → n8n -->
+      <path id="edge-gdrive-n8n" class="edge" d="M 200 180 C 200 250, 300 250, 300 310" stroke="#34d399" data-flows="sync,all,ocr"/>
+      <!-- Sync Flow: OneDrive → n8n -->
+      <path id="edge-onedrive-n8n" class="edge" d="M 400 180 C 400 250, 350 250, 340 310" stroke="#34d399" data-flows="sync,all,ocr"/>
+      <!-- n8n → Ollama (Embedding) -->
+      <path id="edge-n8n-ollama" class="edge" d="M 380 370 C 460 370, 460 370, 540 310" stroke="#fb923c" data-flows="sync,all"/>
+      <!-- n8n → Gemini Embedding (OCR/Multimodal) -->
+      <path id="edge-n8n-gemini" class="edge" d="M 380 390 C 460 420, 500 420, 540 400" stroke="#f472b6" data-flows="ocr,all"/>
+      <!-- Ollama → Supabase (Embedding-Vektor) -->
+      <path id="edge-ollama-supa" class="edge" d="M 620 320 C 680 350, 680 400, 700 430" stroke="#fb923c" data-flows="sync,all"/>
+      <!-- Gemini → Supabase (Embedding-Vektor) -->
+      <path id="edge-gemini-supa" class="edge" d="M 620 410 C 660 420, 680 430, 700 450" stroke="#f472b6" data-flows="ocr,all"/>
+      <!-- n8n → Supabase (Chunks) -->
+      <path id="edge-n8n-supa" class="edge" d="M 380 400 C 500 460, 600 470, 700 470" stroke="#34d399" data-flows="sync,all,ocr"/>
+      <!-- n8n → Telegram -->
+      <path id="edge-n8n-telegram" class="edge" d="M 260 410 C 200 460, 160 500, 160 540" stroke="#22d3ee" data-flows="sync,all,ocr"/>
+      <!-- User → Open WebUI -->
+      <path id="edge-user-webui" class="edge" d="M 900 180 C 900 230, 900 260, 900 310" stroke="#4d8eff" data-flows="query,all"/>
+      <!-- Open WebUI → LiteLLM -->
+      <path id="edge-webui-litellm" class="edge" d="M 850 370 C 790 370, 750 370, 700 340" stroke="#a78bfa" data-flows="query,all"/>
+      <!-- LiteLLM → Claude API -->
+      <path id="edge-litellm-claude" class="edge" d="M 620 290 C 560 260, 520 210, 520 180" stroke="#a78bfa" data-flows="query,all"/>
+      <!-- LiteLLM → Ollama (Fallback) -->
+      <path id="edge-litellm-ollama" class="edge" d="M 620 310 C 600 310, 590 310, 580 310" stroke="#a78bfa" stroke-dasharray="6 4" data-flows="query,all"/>
+      <!-- Open WebUI → Supabase (RAG Query) -->
+      <path id="edge-webui-supa" class="edge" d="M 870 400 C 830 440, 800 460, 760 470" stroke="#4d8eff" data-flows="query,all"/>
+      <!-- Supabase → Open WebUI (Kontext) -->
+      <path id="edge-supa-webui" class="edge" d="M 760 450 C 800 440, 840 420, 870 390" stroke="#4d8eff" stroke-dasharray="6 4" data-flows="query,all"/>
+    </g>
+
+    <!-- ===== PARTICLES (animated along paths) ===== -->
+    <g id="particles">
+      <!-- Sync particles -->
+      <circle r="5" fill="url(#particle-green)" class="particle" data-flows="sync,all" filter="url(#glow)">
+        <animateMotion dur="3s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1">
+          <mpath href="#edge-gdrive-n8n"/>
+        </animateMotion>
+      </circle>
+      <circle r="5" fill="url(#particle-green)" class="particle" data-flows="sync,all" filter="url(#glow)">
+        <animateMotion dur="3.5s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="1s">
+          <mpath href="#edge-onedrive-n8n"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-orange)" class="particle" data-flows="sync,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="0.5s">
+          <mpath href="#edge-n8n-ollama"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-orange)" class="particle" data-flows="sync,all" filter="url(#glow)">
+        <animateMotion dur="2.5s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="1.5s">
+          <mpath href="#edge-ollama-supa"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-green)" class="particle" data-flows="sync,all,ocr" filter="url(#glow)">
+        <animateMotion dur="3s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="2s">
+          <mpath href="#edge-n8n-supa"/>
+        </animateMotion>
+      </circle>
+      <circle r="3" fill="url(#particle-cyan)" class="particle" data-flows="sync,all,ocr" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="3s">
+          <mpath href="#edge-n8n-telegram"/>
+        </animateMotion>
+      </circle>
+
+      <!-- OCR particles -->
+      <circle r="5" fill="url(#particle-pink)" class="particle" data-flows="ocr,all" filter="url(#glow)">
+        <animateMotion dur="2.5s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="0.8s">
+          <mpath href="#edge-n8n-gemini"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-pink)" class="particle" data-flows="ocr,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="1.8s">
+          <mpath href="#edge-gemini-supa"/>
+        </animateMotion>
+      </circle>
+
+      <!-- Query particles -->
+      <circle r="5" fill="url(#particle-blue)" class="particle" data-flows="query,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1">
+          <mpath href="#edge-user-webui"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-purple)" class="particle" data-flows="query,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="0.5s">
+          <mpath href="#edge-webui-litellm"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-purple)" class="particle" data-flows="query,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="1s">
+          <mpath href="#edge-litellm-claude"/>
+        </animateMotion>
+      </circle>
+      <circle r="4" fill="url(#particle-blue)" class="particle" data-flows="query,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="0.3s">
+          <mpath href="#edge-webui-supa"/>
+        </animateMotion>
+      </circle>
+      <circle r="3" fill="url(#particle-blue)" class="particle" data-flows="query,all" filter="url(#glow)">
+        <animateMotion dur="2s" repeatCount="indefinite" keyPoints="0;1" keyTimes="0;1" begin="1.5s">
+          <mpath href="#edge-supa-webui"/>
+        </animateMotion>
+      </circle>
+    </g>
+
+    <!-- ===== NODES ===== -->
+
+    <!-- Google Drive -->
+    <g class="node-group" data-node="gdrive" transform="translate(140, 120)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#1e3a2f" stroke="#34d399" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#128194;</text>
+      <text class="node-label" x="75" y="26">Google</text>
+      <text class="node-sublabel" x="75" y="42">Drive</text>
+    </g>
+
+    <!-- OneDrive -->
+    <g class="node-group" data-node="onedrive" transform="translate(340, 120)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#1e2a3f" stroke="#4d8eff" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#9729;</text>
+      <text class="node-label" x="75" y="26">OneDrive</text>
+      <text class="node-sublabel" x="75" y="42">Graph API</text>
+    </g>
+
+    <!-- n8n -->
+    <g class="node-group" data-node="n8n" transform="translate(240, 310)">
+      <rect class="node-box" x="0" y="0" width="140" height="100" fill="#1f2a1e" stroke="#34d399" stroke-width="2"/>
+      <text class="node-icon" x="70" y="35">&#9881;</text>
+      <text class="node-label" x="70" y="60">n8n</text>
+      <text class="node-sublabel" x="70" y="76">Raspberry Pi</text>
+      <text class="node-sublabel" x="70" y="90">Sync alle 5 Min</text>
+    </g>
+
+    <!-- Ollama -->
+    <g class="node-group" data-node="ollama" transform="translate(520, 260)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#2a2218" stroke="#fb923c" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#129302;</text>
+      <text class="node-label" x="75" y="26">Ollama</text>
+      <text class="node-sublabel" x="75" y="42">nomic-embed</text>
+    </g>
+
+    <!-- Gemini Embedding -->
+    <g class="node-group" data-node="gemini" transform="translate(520, 360)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#2a1828" stroke="#f472b6" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#10024;</text>
+      <text class="node-label" x="75" y="26">Gemini</text>
+      <text class="node-sublabel" x="75" y="42">Embedding 2</text>
+    </g>
+
+    <!-- Supabase -->
+    <g class="node-group" data-node="supabase" transform="translate(680, 430)">
+      <rect class="node-box" x="0" y="0" width="140" height="80" fill="#1a2a1e" stroke="#34d399" stroke-width="2"/>
+      <text class="node-icon" x="70" y="28">&#128451;</text>
+      <text class="node-label" x="70" y="48">Supabase</text>
+      <text class="node-sublabel" x="70" y="62">pgvector</text>
+      <text class="node-sublabel" x="70" y="74">Frankfurt EU</text>
+    </g>
+
+    <!-- Claude API -->
+    <g class="node-group" data-node="claude" transform="translate(460, 120)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#1e1a2f" stroke="#a78bfa" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#129504;</text>
+      <text class="node-label" x="75" y="26">Claude</text>
+      <text class="node-sublabel" x="75" y="42">Sonnet / Opus</text>
+    </g>
+
+    <!-- LiteLLM -->
+    <g class="node-group" data-node="litellm" transform="translate(620, 290)">
+      <rect class="node-box" x="0" y="0" width="120" height="60" fill="#1e1a2f" stroke="#a78bfa" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="30">&#128256;</text>
+      <text class="node-label" x="75" y="26">LiteLLM</text>
+      <text class="node-sublabel" x="75" y="42">Router</text>
+    </g>
+
+    <!-- Open WebUI -->
+    <g class="node-group" data-node="webui" transform="translate(830, 320)">
+      <rect class="node-box" x="0" y="0" width="140" height="80" fill="#162040" stroke="#4d8eff" stroke-width="2"/>
+      <text class="node-icon" x="70" y="28">&#128172;</text>
+      <text class="node-label" x="70" y="50">Open WebUI</text>
+      <text class="node-sublabel" x="70" y="66">Chat + RAG</text>
+    </g>
+
+    <!-- User -->
+    <g class="node-group" data-node="user" transform="translate(850, 120)">
+      <rect class="node-box" x="0" y="0" width="100" height="60" fill="#162040" stroke="#4d8eff" stroke-width="2"/>
+      <text class="node-icon" x="50" y="25">&#128100;</text>
+      <text class="node-label" x="50" y="48">Nutzer</text>
+    </g>
+
+    <!-- Telegram -->
+    <g class="node-group" data-node="telegram" transform="translate(100, 540)">
+      <rect class="node-box" x="0" y="0" width="120" height="55" fill="#162a3a" stroke="#22d3ee" stroke-width="1.5"/>
+      <text class="node-icon" x="25" y="28">&#128233;</text>
+      <text class="node-label" x="75" y="24">Telegram</text>
+      <text class="node-sublabel" x="75" y="40">Monitoring</text>
+    </g>
+
+    <!-- Flow Labels on edges -->
+    <g id="flow-labels" font-size="9" fill="var(--text-dim)">
+      <text x="220" y="230" transform="rotate(-50, 220, 230)" data-flows="sync,all,ocr">Neue/geaenderte Dateien</text>
+      <text x="430" y="340" data-flows="sync,all">Chunk-Text</text>
+      <text x="430" y="420" data-flows="ocr,all">PDF direkt</text>
+      <text x="660" y="360" data-flows="sync,all">Vektor 768d</text>
+      <text x="660" y="435" data-flows="ocr,all">Vektor 768d</text>
+      <text x="530" y="470" data-flows="sync,all,ocr">Chunks + Meta</text>
+      <text x="145" y="490" transform="rotate(-70, 145, 490)" data-flows="sync,all,ocr">Notify</text>
+      <text x="910" y="260" data-flows="query,all">Frage</text>
+      <text x="750" y="345" data-flows="query,all">Prompt</text>
+      <text x="545" y="200" transform="rotate(-40, 545, 200)" data-flows="query,all">LLM-Call</text>
+      <text x="820" y="460" data-flows="query,all">RAG-Query</text>
+      <text x="830" y="430" data-flows="query,all" fill="#4d8eff" font-size="8">Kontext zurueck</text>
+    </g>
+  </svg>
+</div>
+
+<!-- Flow Descriptions -->
+<div class="flow-desc">
+  <div class="flow-desc-card active" id="desc-all">
+    <h3><span style="color:var(--accent-blue)">&#9670;</span> Gesamtansicht — Zwei Datenfluesse</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">A</div>
+        <div class="step-text"><strong>Dokument-Sync (gruen):</strong> Dokumente aus Google Drive / OneDrive werden von n8n erkannt, in Chunks aufgeteilt, als Vektoren embedded und in Supabase gespeichert.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-blue)">B</div>
+        <div class="step-text"><strong>User-Anfrage (blau/lila):</strong> Nutzer stellt Frage in Open WebUI. RAG holt relevante Chunks aus Supabase. LiteLLM routet den Prompt an Claude. Antwort mit Quellenangabe.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-pink)">C</div>
+        <div class="step-text"><strong>OCR-Pipeline (pink):</strong> Gescannte PDFs werden direkt an Gemini Embedding 2 geschickt — kein OCR noetig, das Modell "sieht" das Dokument.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-desc-card" id="desc-sync">
+    <h3><span style="color:var(--accent-green)">&#9670;</span> Dokument-Sync — Alle 5 Minuten</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">1</div>
+        <div class="step-text"><strong>Trigger:</strong> n8n pollt Google Drive (Trigger Node) und OneDrive (Delta API) alle 5 Minuten auf neue, geaenderte oder geloeschte Dateien.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">2</div>
+        <div class="step-text"><strong>Download &amp; Extrahieren:</strong> Datei wird heruntergeladen. Text wird aus PDF (pdf-parse), DOCX (mammoth) oder TXT extrahiert.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">3</div>
+        <div class="step-text"><strong>Chunking:</strong> Text wird in 500-Zeichen-Stuecke mit 75 Zeichen Ueberlappung aufgeteilt. Schnitt an Satzgrenzen.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-orange)">4</div>
+        <div class="step-text"><strong>Embedding:</strong> Jeder Chunk wird an Ollama (nomic-embed-text) oder Google (gemini-embedding-001) geschickt → 768-dimensionaler Vektor.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">5</div>
+        <div class="step-text"><strong>Speichern:</strong> Chunk + Vektor + Metadaten werden in Supabase pgvector (Frankfurt) gespeichert. Bei Update: alte Chunks loeschen, neue einfuegen.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-cyan)">6</div>
+        <div class="step-text"><strong>Monitoring:</strong> Telegram-Benachrichtigung + Eintrag in sync_log Tabelle.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-desc-card" id="desc-query">
+    <h3><span style="color:var(--accent-blue)">&#9670;</span> User-Anfrage — RAG-Pipeline</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-blue)">1</div>
+        <div class="step-text"><strong>Frage:</strong> Nutzer stellt eine Frage in Open WebUI auf Deutsch (z.B. "Was kostet das Business-Paket?").</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-blue)">2</div>
+        <div class="step-text"><strong>RAG-Suche:</strong> Die Frage wird embedded und per Vektorsuche (match_documents) werden die 5 relevantesten Chunks aus Supabase geholt.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-purple)">3</div>
+        <div class="step-text"><strong>Prompt-Aufbau:</strong> System-Prompt + Kontext-Chunks + User-Frage werden zusammengesetzt und an LiteLLM geschickt.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-purple)">4</div>
+        <div class="step-text"><strong>LLM-Routing:</strong> LiteLLM waehlt basierend auf Kosten: Claude Sonnet (Standard), Opus (komplex), oder Ollama Llama 3.3 (Fallback).</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-blue)">5</div>
+        <div class="step-text"><strong>Antwort:</strong> KI antwortet auf Basis der Dokumente, mit Quellenangabe (Dateiname). Keine Halluzination.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-desc-card" id="desc-ocr">
+    <h3><span style="color:var(--accent-pink)">&#9670;</span> OCR / Scan-Pipeline — Gescannte PDFs</h3>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">1</div>
+        <div class="step-text"><strong>Erkennung:</strong> n8n erkennt neue/geaenderte Datei in Drive/OneDrive. pdf-parse versucht Text zu extrahieren.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-pink)">2</div>
+        <div class="step-text"><strong>Scan erkannt:</strong> Weniger als 50 Zeichen extrahiert → Datei ist ein gescanntes PDF. Marker: <code>[OCR_NEEDED]</code></div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-pink)">3</div>
+        <div class="step-text"><strong>Gemini Embedding 2:</strong> Das PDF wird direkt (als Base64) an <code>gemini-embedding-2-preview</code> geschickt. Das multimodale Modell "sieht" das Dokument — kein OCR noetig!</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-pink)">4</div>
+        <div class="step-text"><strong>Vektor:</strong> 768-dimensionaler Vektor wird zurueckgegeben (output_dimensionality=768). Versteht auch Tabellen, Layouts, Handschrift.</div>
+      </div>
+      <div class="step">
+        <div class="step-num" style="background:var(--accent-green)">5</div>
+        <div class="step-text"><strong>Speichern:</strong> Vektor + Metadaten in Supabase. Fuer die Textsuche wird parallel Tesseract OCR als Fallback genutzt.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-green)"></div>Dokument-Sync</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-blue)"></div>User-Anfrage</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple)"></div>LLM-Routing</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-orange)"></div>Embedding (Ollama)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-pink)"></div>Embedding (Gemini)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--accent-cyan)"></div>Monitoring</div>
+</div>
+
+<!-- Tooltip -->
+<div class="tooltip" id="tooltip">
+  <h4 id="tooltip-title"></h4>
+  <p id="tooltip-text"></p>
+</div>
+
+<script>
+const nodeInfo = {
+  gdrive: { title: 'Google Drive', text: 'Dokumentenquelle. n8n pollt alle 5 Min auf neue/geaenderte/geloeschte Dateien via Google Drive Trigger.' },
+  onedrive: { title: 'OneDrive (Microsoft Graph)', text: 'Dokumentenquelle. n8n nutzt die Delta API um Aenderungen zu erkennen. Delta-Token wird zwischen Laeufen gespeichert.' },
+  n8n: { title: 'n8n (Raspberry Pi)', text: 'Workflow-Engine. Ueberwacht Drive/OneDrive, extrahiert Text, teilt in Chunks, generiert Embeddings, speichert in Supabase. Laeuft auf Raspberry Pi.' },
+  ollama: { title: 'Ollama (lokal)', text: 'Lokales Embedding mit nomic-embed-text (768 Dim.) und LLM-Fallback mit Llama 3.3. 100% DSGVO-sicher, keine Daten verlassen das Netzwerk.' },
+  gemini: { title: 'Gemini Embedding 2 Preview', text: 'Multimodales Embedding von Google. Kann gescannte PDFs, Bilder und Text direkt embedden — kein OCR noetig! $0.20/1M Tokens.' },
+  supabase: { title: 'Supabase pgvector (Frankfurt)', text: 'Vektordatenbank in EU-Region. HNSW-Index fuer schnelle Similarity Search. Row Level Security, sync_log, documents_overview View.' },
+  claude: { title: 'Claude API (Anthropic)', text: 'Hauptmodelle: Sonnet (Standard, $3/$15 per 1M), Opus (komplex, $15/$75 per 1M), Haiku (schnell). DPA vorhanden.' },
+  litellm: { title: 'LiteLLM Router', text: 'Einheitliche OpenAI-kompatible API. Cost-based Routing, Fallback-Kette (Opus → Sonnet → Llama), Budget-Limit $50/Mo, 1h Cache.' },
+  webui: { title: 'Open WebUI', text: 'Chat-Interface fuer Nutzer. RAG-Integration, Knowledge Bases, Nutzerverwaltung, System-Prompt. Verbindet sich mit LiteLLM und Supabase.' },
+  user: { title: 'Nutzer', text: 'Stellt Fragen in natuerlicher Sprache. Bekommt Antworten auf Basis echter Firmendokumente mit Quellenangabe.' },
+  telegram: { title: 'Telegram Bot', text: 'Monitoring-Kanal. Benachrichtigt bei jedem Sync-Event (neue Datei, Update, Fehler). sync_log in Supabase fuer Details.' }
+};
+
+// Flow toggle
+const flowBtns = document.querySelectorAll('.flow-btn');
+const edges = document.querySelectorAll('.edge');
+const particles = document.querySelectorAll('.particle');
+const flowLabels = document.querySelectorAll('#flow-labels text');
+const descCards = document.querySelectorAll('.flow-desc-card');
+
+function setFlow(flow) {
+  flowBtns.forEach(b => b.classList.toggle('active', b.dataset.flow === flow));
+
+  edges.forEach(e => {
+    const flows = e.dataset.flows?.split(',') || [];
+    e.classList.toggle('active', flows.includes(flow));
+  });
+
+  particles.forEach(p => {
+    const flows = p.dataset.flows?.split(',') || [];
+    p.classList.toggle('active', flows.includes(flow));
+  });
+
+  flowLabels.forEach(l => {
+    const flows = l.dataset.flows?.split(',') || [];
+    l.style.opacity = flows.includes(flow) ? '0.7' : '0.1';
+  });
+
+  descCards.forEach(c => c.classList.toggle('active', c.id === `desc-${flow}`));
+}
+
+flowBtns.forEach(btn => {
+  btn.addEventListener('click', () => setFlow(btn.dataset.flow));
+});
+
+// Tooltip
+const tooltip = document.getElementById('tooltip');
+const tooltipTitle = document.getElementById('tooltip-title');
+const tooltipText = document.getElementById('tooltip-text');
+
+document.querySelectorAll('.node-group').forEach(node => {
+  node.addEventListener('mouseenter', (e) => {
+    const info = nodeInfo[node.dataset.node];
+    if (!info) return;
+    tooltipTitle.textContent = info.title;
+    tooltipText.textContent = info.text;
+    tooltip.classList.add('visible');
+  });
+
+  node.addEventListener('mousemove', (e) => {
+    tooltip.style.left = (e.clientX + 15) + 'px';
+    tooltip.style.top = (e.clientY + 15) + 'px';
+  });
+
+  node.addEventListener('mouseleave', () => {
+    tooltip.classList.remove('visible');
+  });
+});
+
+// Initial state
+setFlow('all');
+</script>
+</body>
+</html>

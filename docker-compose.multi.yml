@@ -1,0 +1,206 @@
+# =============================================================================
+# CopLLM — Multi-Kunden Deployment (Hybrid)
+#
+# Architektur:
+#   1x Caddy          — shared, routet alle Kunden-Domains
+#   1x LiteLLM        — shared, spart Ressourcen
+#   Nx Open WebUI     — pro Kunde eine eigene Instanz
+#
+# Neuen Kunden hinzufuegen:
+#   1. Block unten kopieren (Suche: "KUNDE KOPIERVORLAGE")
+#   2. Alle "kunde-a" durch neuen Kundennamen ersetzen
+#   3. Port hochzaehlen (3001, 3002, 3003, ...)
+#   4. In caddy/Caddyfile.multi die neue Domain eintragen
+#   5. docker compose -f docker-compose.multi.yml up -d
+#
+# Start:
+#   cp .env.example .env  # Secrets eintragen
+#   docker compose -f docker-compose.multi.yml up -d
+# =============================================================================
+
+services:
+
+  # =========================================================================
+  # SHARED SERVICES (1x fuer alle Kunden)
+  # =========================================================================
+
+  # --- Reverse Proxy (routet Subdomains zu Kunden-Containern) ---
+  caddy:
+    image: caddy:2-alpine
+    container_name: copllm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile.multi:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - copllm-net
+
+  # --- LLM Router (shared, alle Kunden nutzen denselben) ---
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: copllm-litellm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # --- n8n (Dokument-Sync fuer alle Kunden) ---
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: copllm-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.clx-digital.de/
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change-me}
+      - GENERIC_TIMEZONE=Europe/Berlin
+      # Supabase + Embedding Vars (fuer Workflows)
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-768}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - GOOGLE_EMBEDDING_MODEL=${GOOGLE_EMBEDDING_MODEL:-gemini-embedding-001}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =========================================================================
+  # CLX DIGITAL (eigene Demo-Instanz)
+  # =========================================================================
+
+  webui-clx:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui-clx
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_CLX:-change-me-clx}
+      - ENABLE_SIGNUP=false
+      - WEBUI_NAME=CLX Digital AI
+    volumes:
+      - webui-data-clx:/app/backend/data
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =========================================================================
+  # KUNDE A — KOPIERVORLAGE
+  # =========================================================================
+  # Neuen Kunden anlegen:
+  #   1. Diesen Block kopieren
+  #   2. "kunde-a" durch Kundennamen ersetzen (z.B. "mueller-gmbh")
+  #   3. OPENWEBUI_SECRET_KUNDE_A in .env anlegen
+  #   4. WEBUI_NAME anpassen
+  #   5. Volume-Name anpassen
+  #   6. In caddy/Caddyfile.multi die Domain eintragen
+  # =========================================================================
+
+  webui-kunde-a:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui-kunde-a
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KUNDE_A:-change-me-kunde-a}
+      - ENABLE_SIGNUP=false
+      - WEBUI_NAME=Kunde A - KI Assistent
+    volumes:
+      - webui-data-kunde-a:/app/backend/data
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =========================================================================
+  # KUNDE B — Beispiel zweiter Kunde
+  # =========================================================================
+
+  webui-kunde-b:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui-kunde-b
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS=${LITELLM_MASTER_KEY}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KUNDE_B:-change-me-kunde-b}
+      - ENABLE_SIGNUP=false
+      - WEBUI_NAME=Kunde B - KI Assistent
+    volumes:
+      - webui-data-kunde-b:/app/backend/data
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+# =============================================================================
+# VOLUMES — Pro Kunde ein eigenes Volume (Isolation)
+# =============================================================================
+volumes:
+  caddy-data:
+  caddy-config:
+  n8n-data:
+  webui-data-clx:
+  webui-data-kunde-a:
+  webui-data-kunde-b:
+  # Neuer Kunde → neues Volume hier eintragen
+
+# =============================================================================
+# NETZWERK — Alle Container im selben internen Netz
+# =============================================================================
+networks:
+  copllm-net:
+    driver: bridge
