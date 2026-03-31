@@ -37,6 +37,7 @@ theme:
     - content.code.annotate
   icon:
     repo: fontawesome/brands/github
+  custom_dir: docs/overrides
 
 repo_url: https://github.com/cloth/CopLLM
 repo_name: cloth/CopLLM
@@ -51,10 +52,17 @@ extra:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
+
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.highlight:
@@ -63,9 +71,14 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.mark
+  - pymdownx.tasklist:
+      custom_checkbox: true
   - tables
   - attr_list
   - md_in_html
+  - def_list
+  - footnotes
+  - abbr
   - toc:
       permalink: true
       title: Inhalt
@@ -73,6 +86,13 @@ markdown_extensions:
 plugins:
   - search:
       lang: de
+  - blog:
+      blog_dir: blog
+      post_date_format: "d. MMMM yyyy"
+      archive_name: Archiv
+      categories_name: Kategorien
+  - tags:
+      tags_file: tags.md
 
 nav:
   - Start: index.md
@@ -92,3 +112,6 @@ nav:
       - LLM-Kosten: 11-llm-kosten-monitoring.md
   - Integrationen: 12-integrationen.md
   - Architektur: architecture.md
+  - Blog:
+      - blog/index.md
+  - Tags: tags.md
