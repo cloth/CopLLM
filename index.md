@@ -13,11 +13,11 @@ docker compose up -d
 
 ## Dokumentation
 
-- **[Setup-Anleitungen](runbook/01-setup-supabase.md)** — Schritt fuer Schritt vom leeren Server zum laufenden System
-- **[Kunden-Rollout](runbook/06-kunden-rollout.md)** — Checkliste fuer neue Kunden
-- **[Integrationen](runbook/12-integrationen.md)** — Alle unterstuetzten Dokumentenquellen
-- **[Skalierung](runbook/10-skalierung.md)** — Von 10 auf 1000+ Kunden
-- **[LLM-Kosten](runbook/11-llm-kosten-monitoring.md)** — Monitoring, Dashboard, Abrechnung
+- **[Setup-Anleitungen](01-setup-supabase.md)** — Schritt fuer Schritt vom leeren Server zum laufenden System
+- **[Kunden-Rollout](06-kunden-rollout.md)** — Checkliste fuer neue Kunden
+- **[Integrationen](12-integrationen.md)** — Alle unterstuetzten Dokumentenquellen
+- **[Skalierung](10-skalierung.md)** — Von 10 auf 1000+ Kunden
+- **[LLM-Kosten](11-llm-kosten-monitoring.md)** — Monitoring, Dashboard, Abrechnung
 
 ## Stack
 
