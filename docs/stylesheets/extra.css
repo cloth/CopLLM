@@ -1,0 +1,114 @@
+/* =============================================================================
+   CopLLM — Custom MkDocs Material Theme
+   CLX Digital Branding
+   ============================================================================= */
+
+/* --- Farbpalette --- */
+:root,
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #0066CC;
+  --md-primary-fg-color--light: #3388DD;
+  --md-primary-fg-color--dark: #004C99;
+  --md-accent-fg-color: #00BBCC;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #0088EE;
+  --md-primary-fg-color--light: #33AAFF;
+  --md-primary-fg-color--dark: #0066CC;
+  --md-accent-fg-color: #00DDEE;
+  --md-default-bg-color: #0d1117;
+  --md-default-bg-color--light: #161b22;
+}
+
+/* --- Hero Section (Startseite) --- */
+.md-typeset .hero {
+  text-align: center;
+  padding: 2rem 1rem 3rem;
+  margin-bottom: 2rem;
+}
+
+.md-typeset .hero h1 {
+  font-size: 2.4rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(135deg, #0088EE, #00DDEE);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.md-typeset .hero p {
+  font-size: 1.15rem;
+  opacity: 0.85;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* --- Feature Grid --- */
+.md-typeset .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.md-typeset .grid .card {
+  padding: 1.2rem;
+  border-radius: 8px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  background: var(--md-default-bg-color--light);
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.md-typeset .grid .card:hover {
+  border-color: var(--md-accent-fg-color);
+  transform: translateY(-2px);
+}
+
+.md-typeset .grid .card h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .grid .card p {
+  font-size: 0.85rem;
+  margin-bottom: 0;
+  opacity: 0.8;
+}
+
+/* --- Admonitions schoener --- */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 6px;
+}
+
+/* --- Code Blocks --- */
+.md-typeset pre > code {
+  border-radius: 6px;
+}
+
+/* --- Footer --- */
+.md-footer-meta {
+  opacity: 0.7;
+}
+
+/* --- Tabs sticky --- */
+.md-tabs {
+  backdrop-filter: blur(8px);
+}
+
+/* --- Scrollbar (Dark Mode) --- */
+[data-md-color-scheme="slate"] ::-webkit-scrollbar {
+  width: 8px;
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-track {
+  background: var(--md-default-bg-color);
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-thumb {
+  background: var(--md-default-fg-color--lighter);
+  border-radius: 4px;
+}

@@ -26,7 +26,7 @@ jobs:
 
       - run: pip install mkdocs-material
 
-      # Docs-Ordner zusammenstellen (index + Runbook + Architektur → docs/)
+      # Docs-Ordner zusammenstellen (index + Runbook → docs/)
       - name: Prepare docs directory
         run: |
           cp index.md docs/
