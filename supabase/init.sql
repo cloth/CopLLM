@@ -28,9 +28,19 @@ CREATE TABLE IF NOT EXISTS tenants (
 CREATE INDEX IF NOT EXISTS idx_tenants_domain ON tenants (domain);
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants (status);
 
--- 3. Enum fuer Dokumenten-Quellen (unveraendert)
+-- 3. Enum fuer Dokumenten-Quellen
 DO $$ BEGIN
-    CREATE TYPE doc_source AS ENUM ('google_drive', 'onedrive', 'manual_upload');
+    CREATE TYPE doc_source AS ENUM (
+        'google_drive',
+        'onedrive',
+        'sharepoint',
+        'nextcloud',
+        'email',
+        'dropbox',
+        'confluence',
+        'notion',
+        'manual_upload'
+    );
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;

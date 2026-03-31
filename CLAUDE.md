@@ -57,6 +57,8 @@ CopLLM/
 │
 ├── n8n/
 │   ├── google-drive-sync.json       # Workflow: Drive/OneDrive → Chunks → Supabase
+│   ├── nextcloud-sync.json          # Workflow: Nextcloud WebDAV → Chunks → Supabase
+│   ├── email-sync.json              # Workflow: Email IMAP Attachments → Chunks → Supabase
 │   └── initial-import.json          # Workflow: Bulk-Import aller bestehenden Docs
 │
 ├── docker-compose.quick.yml         # Weg A: Schnellstart (nur Open WebUI + API)

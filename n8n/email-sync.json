@@ -1,0 +1,152 @@
+{
+  "name": "CopLLM — Email/IMAP Attachment Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute",
+              "minute": 5
+            }
+          ]
+        },
+        "mailbox": "INBOX",
+        "options": {
+          "customEmailConfig": "={{ $env.IMAP_HOST || 'imap.gmail.com' }}",
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "email-trigger",
+      "name": "Email Trigger (IMAP)",
+      "type": "n8n-nodes-base.imapEmail",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "credentials": {
+        "imap": {
+          "id": "IMAP_CREDENTIAL_ID",
+          "name": "Email Kunde"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nur Emails mit Attachments verarbeiten\n// Unterstuetzte Dateitypen filtern\nconst items = $input.all();\nconst supportedTypes = ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.pptx', '.odt', '.ods', '.csv'];\nconst results = [];\n\nfor (const item of items) {\n  const binaries = item.binary || {};\n  const subject = item.json.subject || '(kein Betreff)';\n  const from = item.json.from?.text || item.json.from || 'unbekannt';\n  const messageId = item.json.messageId || item.json.id || `email-${Date.now()}`;\n  const date = item.json.date || new Date().toISOString();\n  \n  // Jedes Attachment einzeln verarbeiten\n  for (const [key, binary] of Object.entries(binaries)) {\n    const fileName = binary.fileName || key;\n    const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();\n    \n    if (!supportedTypes.includes(ext)) continue;\n    \n    results.push({\n      json: {\n        fileName: fileName,\n        fileExtension: ext,\n        emailSubject: subject,\n        emailFrom: from,\n        emailDate: date,\n        source: 'email',\n        source_id: `${messageId}__${fileName}`,\n        binaryKey: key,\n        action: 'add_or_update'\n      },\n      binary: { data: binary }\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ json: { action: 'none', reason: 'Keine unterstuetzten Attachments' } }];\n}\n\nreturn results;"
+      },
+      "id": "filter-attachments",
+      "name": "Attachments Filtern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "action-check",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-attachments",
+      "name": "Hat Attachments?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Text aus Attachment extrahieren\nconst item = $input.first();\nconst ext = item.json.fileExtension;\nlet text = '';\nlet needs_ocr = false;\n\nif (ext === '.txt' || ext === '.md' || ext === '.csv') {\n  const binaryData = item.binary?.data;\n  if (binaryData) {\n    text = Buffer.from(binaryData.data, 'base64').toString('utf-8');\n  }\n} else if (ext === '.pdf') {\n  text = '[PDF_BINARY]';\n  needs_ocr = true;\n} else if (ext === '.docx' || ext === '.odt') {\n  text = '[NEEDS_EXTRACTION]';\n} else {\n  text = '[UNSUPPORTED_FORMAT]';\n}\n\nif (text.length > 0 && text.length < 50 && !text.startsWith('[')) {\n  needs_ocr = true;\n  text = '[OCR_NEEDED] ' + text;\n}\n\n// Email-Metadaten als Kontext prependen\nconst context = `Quelle: Email von ${item.json.emailFrom}\\nBetreff: ${item.json.emailSubject}\\nDatum: ${item.json.emailDate}\\nDatei: ${item.json.fileName}\\n---\\n`;\n\nreturn [{\n  json: {\n    ...item.json,\n    text: context + text,\n    needs_ocr: needs_ocr\n  },\n  binary: item.binary\n}];"
+      },
+      "id": "extract-text",
+      "name": "Text Extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Chunking (identisch zu Nextcloud/Drive Workflow)\nconst item = $input.first();\nconst text = item.json.text;\nconst CHUNK_SIZE = parseInt($env.CHUNK_SIZE || '500');\nconst CHUNK_OVERLAP = parseInt($env.CHUNK_OVERLAP || '75');\n\nif (!text || text.startsWith('[') || text.length < 50) {\n  return [{ json: { ...item.json, chunks: [text], chunkCount: 1 } }];\n}\n\nconst chunks = [];\nlet start = 0;\n\nwhile (start < text.length) {\n  let end = Math.min(start + CHUNK_SIZE, text.length);\n  \n  if (end < text.length) {\n    const lastPeriod = text.lastIndexOf('. ', end);\n    const lastNewline = text.lastIndexOf('\\n', end);\n    const bestBreak = Math.max(lastPeriod, lastNewline);\n    if (bestBreak > start + CHUNK_SIZE * 0.5) {\n      end = bestBreak + 1;\n    }\n  }\n  \n  const chunk = text.substring(start, end).trim();\n  if (chunk.length > 0) chunks.push(chunk);\n  \n  start = end - CHUNK_OVERLAP;\n  if (start >= text.length) break;\n}\n\nreturn [{ json: { ...item.json, chunks, chunkCount: chunks.length } }];"
+      },
+      "id": "chunk-text",
+      "name": "Text Chunken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Embedding + Supabase (identisch zu Nextcloud Workflow)\nconst item = $input.first();\nconst chunks = item.json.chunks;\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst tenantId = $env.TENANT_ID || 'clx-digital';\nconst ollamaUrl = $env.OLLAMA_BASE_URL || 'http://host.docker.internal:11434';\nconst embeddingModel = $env.EMBEDDING_MODEL || 'nomic-embed-text';\n\n// Alte Chunks loeschen (idempotent)\nawait fetch(`${supabaseUrl}/rest/v1/rpc/delete_by_source_id`, {\n  method: 'POST',\n  headers: {\n    'apikey': supabaseKey,\n    'Authorization': `Bearer ${supabaseKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({ p_source: 'email', p_source_id: item.json.source_id })\n});\n\nconst results = [];\nfor (let i = 0; i < chunks.length; i++) {\n  const chunk = chunks[i];\n  \n  const embResp = await fetch(`${ollamaUrl}/api/embeddings`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ model: embeddingModel, prompt: chunk })\n  });\n  const embData = await embResp.json();\n  \n  if (embData.embedding) {\n    await fetch(`${supabaseUrl}/rest/v1/documents`, {\n      method: 'POST',\n      headers: {\n        'apikey': supabaseKey,\n        'Authorization': `Bearer ${supabaseKey}`,\n        'Content-Type': 'application/json',\n        'Prefer': 'return=minimal'\n      },\n      body: JSON.stringify({\n        source: 'email',\n        source_id: item.json.source_id,\n        file_name: item.json.fileName,\n        file_path: `${item.json.emailFrom} — ${item.json.emailSubject}`,\n        content: chunk,\n        chunk_index: i,\n        embedding: `[${embData.embedding.join(',')}]`,\n        tenant_id: tenantId,\n        metadata: {\n          emailFrom: item.json.emailFrom,\n          emailSubject: item.json.emailSubject,\n          emailDate: item.json.emailDate\n        }\n      })\n    });\n    results.push({ chunk: i, status: 'ok' });\n  }\n  \n  if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500));\n}\n\nreturn [{ json: { fileName: item.json.fileName, chunksInserted: results.length } }];"
+      },
+      "id": "embed-and-store",
+      "name": "Embedden + Supabase Speichern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sync_log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tenant_id\": \"{{ $env.TENANT_ID || 'clx-digital' }}\",\n  \"source\": \"email\",\n  \"action\": \"add\",\n  \"file_name\": \"{{ $json.fileName }}\",\n  \"chunks_count\": {{ $json.chunksInserted || 0 }},\n  \"status\": \"success\"\n}"
+      },
+      "id": "sync-log",
+      "name": "Sync Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300]
+    }
+  ],
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [[{ "node": "Attachments Filtern", "type": "main", "index": 0 }]]
+    },
+    "Attachments Filtern": {
+      "main": [[{ "node": "Hat Attachments?", "type": "main", "index": 0 }]]
+    },
+    "Hat Attachments?": {
+      "main": [[{ "node": "Text Extrahieren", "type": "main", "index": 0 }]]
+    },
+    "Text Extrahieren": {
+      "main": [[{ "node": "Text Chunken", "type": "main", "index": 0 }]]
+    },
+    "Text Chunken": {
+      "main": [[{ "node": "Embedden + Supabase Speichern", "type": "main", "index": 0 }]]
+    },
+    "Embedden + Supabase Speichern": {
+      "main": [[{ "node": "Sync Log", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "CopLLM" },
+    { "name": "Email" },
+    { "name": "IMAP" }
+  ]
+}

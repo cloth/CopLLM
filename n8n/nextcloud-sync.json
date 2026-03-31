@@ -1,0 +1,204 @@
+{
+  "name": "CopLLM — Nextcloud Sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule (5 Min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "path": "={{ $json.watchFolder || '/Documents' }}",
+        "options": {}
+      },
+      "id": "nextcloud-list",
+      "name": "Nextcloud List Files",
+      "type": "n8n-nodes-base.nextCloud",
+      "typeVersion": 1,
+      "position": [420, 300],
+      "credentials": {
+        "nextCloudApi": {
+          "id": "NEXTCLOUD_CREDENTIAL_ID",
+          "name": "Nextcloud Kunde"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Delta-Erkennung: Nur neue/geaenderte Dateien verarbeiten\n// Letzer Sync-Zeitpunkt aus Static Data\nconst staticData = $getWorkflowStaticData('global');\nconst lastSync = staticData.lastSync || '1970-01-01T00:00:00Z';\nconst lastSyncDate = new Date(lastSync);\n\nconst supportedTypes = ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.pptx', '.odt', '.ods'];\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const fileName = item.json.basename || item.json.name || '';\n  const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();\n  const lastModified = new Date(item.json.lastmod || item.json.getlastmodified || '1970-01-01');\n  \n  if (!supportedTypes.includes(ext)) continue;\n  \n  if (lastModified > lastSyncDate) {\n    results.push({\n      json: {\n        ...item.json,\n        fileName: fileName,\n        filePath: item.json.filename || item.json.path || '',\n        fileExtension: ext,\n        lastModified: lastModified.toISOString(),\n        source: 'nextcloud',\n        source_id: item.json.fileid ? String(item.json.fileid) : item.json.filename,\n        action: 'add_or_update'\n      }\n    });\n  }\n}\n\n// Sync-Zeitpunkt aktualisieren\nstaticData.lastSync = new Date().toISOString();\n\nreturn results.length > 0 ? results : [{ json: { action: 'none' } }];"
+      },
+      "id": "delta-check",
+      "name": "Delta Check (nur neue/geaenderte)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "action-check",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-no-changes",
+      "name": "Hat Aenderungen?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "path": "={{ $json.filePath }}",
+        "options": {}
+      },
+      "id": "nextcloud-download",
+      "name": "Nextcloud Download",
+      "type": "n8n-nodes-base.nextCloud",
+      "typeVersion": 1,
+      "position": [1080, 300],
+      "credentials": {
+        "nextCloudApi": {
+          "id": "NEXTCLOUD_CREDENTIAL_ID",
+          "name": "Nextcloud Kunde"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Text aus Datei extrahieren (PDF, DOCX, TXT, MD)\nconst item = $input.first();\nconst ext = item.json.fileExtension;\nconst fileName = item.json.fileName;\nlet text = '';\nlet needs_ocr = false;\n\nif (ext === '.txt' || ext === '.md') {\n  // Klartext direkt lesen\n  const binaryData = item.binary?.data;\n  if (binaryData) {\n    text = Buffer.from(binaryData.data, 'base64').toString('utf-8');\n  }\n} else if (ext === '.pdf') {\n  // PDF: Wird spaeter via Embedding oder OCR verarbeitet\n  // Hier erstmal Binary durchreichen\n  const binaryData = item.binary?.data;\n  if (binaryData) {\n    // Versuch Text zu extrahieren (fuer text-basierte PDFs)\n    text = '[PDF_BINARY]';  // Marker fuer downstream OCR/Embedding\n    needs_ocr = true;\n  }\n} else if (ext === '.docx' || ext === '.odt') {\n  // DOCX/ODT: n8n Extract Node nutzen\n  text = '[NEEDS_EXTRACTION]';\n} else {\n  text = '[UNSUPPORTED_FORMAT]';\n}\n\n// OCR-Erkennung: Weniger als 50 Zeichen = vermutlich Scan\nif (text.length > 0 && text.length < 50 && !text.startsWith('[')) {\n  needs_ocr = true;\n  text = '[OCR_NEEDED] ' + text;\n}\n\nreturn [{\n  json: {\n    ...item.json,\n    text: text,\n    needs_ocr: needs_ocr,\n    charCount: text.length\n  },\n  binary: item.binary\n}];"
+      },
+      "id": "extract-text",
+      "name": "Text Extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Chunking: Text in Abschnitte zerlegen\nconst item = $input.first();\nconst text = item.json.text;\nconst CHUNK_SIZE = parseInt($env.CHUNK_SIZE || '500');\nconst CHUNK_OVERLAP = parseInt($env.CHUNK_OVERLAP || '75');\n\n// Wenn Text zu kurz oder Marker: als einzelnen Chunk zurueckgeben\nif (!text || text.startsWith('[') || text.length < 50) {\n  return [{ json: { ...item.json, chunks: [text], chunkCount: 1 } }];\n}\n\nconst chunks = [];\nlet start = 0;\n\nwhile (start < text.length) {\n  let end = Math.min(start + CHUNK_SIZE, text.length);\n  \n  // Am Satzende schneiden wenn moeglich\n  if (end < text.length) {\n    const lastPeriod = text.lastIndexOf('. ', end);\n    const lastNewline = text.lastIndexOf('\\n', end);\n    const bestBreak = Math.max(lastPeriod, lastNewline);\n    if (bestBreak > start + CHUNK_SIZE * 0.5) {\n      end = bestBreak + 1;\n    }\n  }\n  \n  const chunk = text.substring(start, end).trim();\n  if (chunk.length > 0) {\n    chunks.push(chunk);\n  }\n  \n  start = end - CHUNK_OVERLAP;\n  if (start >= text.length) break;\n}\n\nreturn [{ json: { ...item.json, chunks: chunks, chunkCount: chunks.length } }];"
+      },
+      "id": "chunk-text",
+      "name": "Text Chunken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alte Chunks loeschen + Neue einfuegen\nconst item = $input.first();\nconst chunks = item.json.chunks;\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst tenantId = $env.TENANT_ID || 'clx-digital';\nconst embeddingProvider = $env.EMBEDDING_PROVIDER || 'ollama';\nconst ollamaUrl = $env.OLLAMA_BASE_URL || 'http://host.docker.internal:11434';\nconst embeddingModel = $env.EMBEDDING_MODEL || 'nomic-embed-text';\n\n// 1. Alte Chunks loeschen\nawait fetch(`${supabaseUrl}/rest/v1/rpc/delete_by_source_id`, {\n  method: 'POST',\n  headers: {\n    'apikey': supabaseKey,\n    'Authorization': `Bearer ${supabaseKey}`,\n    'Content-Type': 'application/json'\n  },\n  body: JSON.stringify({\n    p_source: 'nextcloud',\n    p_source_id: item.json.source_id\n  })\n});\n\n// 2. Pro Chunk: Embedding generieren + in Supabase speichern\nconst results = [];\nfor (let i = 0; i < chunks.length; i++) {\n  const chunk = chunks[i];\n  \n  // Embedding generieren (Ollama)\n  let embedding = null;\n  if (embeddingProvider === 'ollama') {\n    const embResp = await fetch(`${ollamaUrl}/api/embeddings`, {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({ model: embeddingModel, prompt: chunk })\n    });\n    const embData = await embResp.json();\n    embedding = embData.embedding;\n  }\n  \n  // In Supabase speichern\n  if (embedding) {\n    const insertResp = await fetch(`${supabaseUrl}/rest/v1/documents`, {\n      method: 'POST',\n      headers: {\n        'apikey': supabaseKey,\n        'Authorization': `Bearer ${supabaseKey}`,\n        'Content-Type': 'application/json',\n        'Prefer': 'return=minimal'\n      },\n      body: JSON.stringify({\n        source: 'nextcloud',\n        source_id: item.json.source_id,\n        file_name: item.json.fileName,\n        file_path: item.json.filePath,\n        content: chunk,\n        chunk_index: i,\n        embedding: `[${embedding.join(',')}]`,\n        tenant_id: tenantId,\n        metadata: { charCount: chunk.length }\n      })\n    });\n    results.push({ chunk: i, status: insertResp.status });\n  }\n  \n  // Kurze Pause (Ollama schonen)\n  if (i < chunks.length - 1) {\n    await new Promise(r => setTimeout(r, 500));\n  }\n}\n\nreturn [{ json: { fileName: item.json.fileName, chunksInserted: results.length, results } }];"
+      },
+      "id": "embed-and-store",
+      "name": "Embedden + Supabase Speichern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/sync_log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=minimal" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tenant_id\": \"{{ $env.TENANT_ID || 'clx-digital' }}\",\n  \"source\": \"nextcloud\",\n  \"action\": \"add\",\n  \"source_id\": \"{{ $json.source_id || '' }}\",\n  \"file_name\": \"{{ $json.fileName }}\",\n  \"chunks_count\": {{ $json.chunksInserted || 0 }},\n  \"status\": \"success\"\n}"
+      },
+      "id": "sync-log",
+      "name": "Sync Log Schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1960, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=Nextcloud Sync: {{ $json.fileName }} ({{ $json.chunksInserted }} Chunks)",
+        "additionalFields": {}
+      },
+      "id": "telegram-notify",
+      "name": "Telegram Benachrichtigung",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "TELEGRAM_CREDENTIAL_ID",
+          "name": "CopLLM Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule (5 Min)": {
+      "main": [[{ "node": "Nextcloud List Files", "type": "main", "index": 0 }]]
+    },
+    "Nextcloud List Files": {
+      "main": [[{ "node": "Delta Check (nur neue/geaenderte)", "type": "main", "index": 0 }]]
+    },
+    "Delta Check (nur neue/geaenderte)": {
+      "main": [[{ "node": "Hat Aenderungen?", "type": "main", "index": 0 }]]
+    },
+    "Hat Aenderungen?": {
+      "main": [[{ "node": "Nextcloud Download", "type": "main", "index": 0 }]]
+    },
+    "Nextcloud Download": {
+      "main": [[{ "node": "Text Extrahieren", "type": "main", "index": 0 }]]
+    },
+    "Text Extrahieren": {
+      "main": [[{ "node": "Text Chunken", "type": "main", "index": 0 }]]
+    },
+    "Text Chunken": {
+      "main": [[{ "node": "Embedden + Supabase Speichern", "type": "main", "index": 0 }]]
+    },
+    "Embedden + Supabase Speichern": {
+      "main": [[{ "node": "Sync Log Schreiben", "type": "main", "index": 0 }]]
+    },
+    "Sync Log Schreiben": {
+      "main": [[{ "node": "Telegram Benachrichtigung", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "CopLLM" },
+    { "name": "Nextcloud" },
+    { "name": "Sync" }
+  ]
+}
