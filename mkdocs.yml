@@ -45,20 +45,18 @@ plugins:
 nav:
   - Start: index.md
   - Setup:
-      - Supabase: runbook/01-setup-supabase.md
-      - Ollama: runbook/02-setup-ollama.md
-      - LiteLLM: runbook/03-setup-litellm.md
-      - Open WebUI: runbook/04-setup-open-webui.md
-      - n8n Sync: runbook/05-setup-n8n-sync.md
+      - Supabase: 01-setup-supabase.md
+      - Ollama: 02-setup-ollama.md
+      - LiteLLM: 03-setup-litellm.md
+      - Open WebUI: 04-setup-open-webui.md
+      - n8n Sync: 05-setup-n8n-sync.md
   - Betrieb:
-      - Kunden-Rollout: runbook/06-kunden-rollout.md
-      - Demo-Skript: runbook/07-demo-skript.md
-      - Troubleshooting: runbook/08-troubleshooting.md
-      - Hacks & Learnings: runbook/09-hacks-und-learnings.md
+      - Kunden-Rollout: 06-kunden-rollout.md
+      - Demo-Skript: 07-demo-skript.md
+      - Troubleshooting: 08-troubleshooting.md
+      - Hacks & Learnings: 09-hacks-und-learnings.md
   - Skalierung:
-      - 1000+ Kunden: runbook/10-skalierung.md
-      - LLM-Kosten: runbook/11-llm-kosten-monitoring.md
-  - Integrationen: runbook/12-integrationen.md
-  - Architektur: docs/architecture.md
-
-docs_dir: .
+      - 1000+ Kunden: 10-skalierung.md
+      - LLM-Kosten: 11-llm-kosten-monitoring.md
+  - Integrationen: 12-integrationen.md
+  - Architektur: architecture.md

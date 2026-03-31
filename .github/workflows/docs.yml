@@ -3,12 +3,7 @@ name: Deploy Docs to GitHub Pages
 on:
   push:
     branches: [master]
-    paths:
-      - 'runbook/**'
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'index.md'
-      - 'README.md'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,10 +26,25 @@ jobs:
 
       - run: pip install mkdocs-material
 
-      - run: mkdocs build --strict
+      # Docs-Ordner zusammenstellen (index + Runbook + Architektur → docs/)
+      - name: Prepare docs directory
+        run: |
+          cp index.md docs/
+          cp runbook/*.md docs/
+
+      - run: mkdocs build
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/
 
-      - uses: actions/deploy-pages@v4
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
