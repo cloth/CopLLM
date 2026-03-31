@@ -2,7 +2,7 @@
 
 Das interaktive Architektur-Diagramm zeigt den Datenfluss zwischen allen Komponenten.
 
-[Interaktives Diagramm oeffnen](../docs/architecture.html){ .md-button }
+Das interaktive SVG-Diagramm ist im Repo unter `docs/architecture.html` verfuegbar.
 
 ## Uebersicht
 

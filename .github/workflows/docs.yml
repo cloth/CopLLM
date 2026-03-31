@@ -30,7 +30,7 @@ jobs:
       - name: Prepare docs directory
         run: |
           cp index.md docs/
-          cp runbook/*.md docs/
+          for f in runbook/[0-9]*.md; do cp "$f" docs/; done
 
       - run: mkdocs build
 
