@@ -66,8 +66,8 @@ litellm_settings:
   set_verbose: false
   drop_params: true
 
-  # Budget-Limit (Sicherheitsnetz fuer Demo)
-  max_budget: 50.0
+  # Budget-Limit (globales Sicherheitsnetz)
+  max_budget: 500.0
   budget_duration: "1mo"
 
   # Cache fuer wiederholte Fragen
@@ -79,3 +79,8 @@ litellm_settings:
 # --- API-Zugang ---
 general_settings:
   master_key: "os.environ/LITELLM_MASTER_KEY"
+
+  # Datenbank fuer Virtual Keys + Per-Kunde Budget-Tracking
+  # Ermoeglicht: POST /key/generate, GET /spend/logs, Per-Key Budgets
+  # Tabellen werden automatisch erstellt beim ersten Start
+  database_url: "os.environ/LITELLM_DATABASE_URL"

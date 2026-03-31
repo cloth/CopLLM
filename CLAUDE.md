@@ -72,9 +72,16 @@ CopLLM/
 │   ├── 06-kunden-rollout.md
 │   ├── 07-demo-skript.md
 │   ├── 08-troubleshooting.md
-│   └── 09-hacks-und-learnings.md
+│   ├── 09-hacks-und-learnings.md
+│   ├── 10-skalierung.md             # 3-Phasen-Plan: 10 → 1000+ Kunden
+│   └── 11-llm-kosten-monitoring.md  # Usage Dashboard, Abrechnung, Alerting
 │
-└── scripts/                         # Automatisierung fuer Kunden-Rollout (spaeter)
+└── scripts/                         # Automatisierung fuer Kunden-Rollout
+    ├── add-customer.sh              # Legacy (wird durch provision.py ersetzt)
+    ├── provision.py                 # DB-driven Provisioning (Phase 1)
+    └── templates/                   # Jinja2-Templates fuer Config-Generierung
+        ├── docker-compose.multi.yml.j2
+        └── Caddyfile.multi.j2
 ```
 
 ## Deployment-Stufen

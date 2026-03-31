@@ -1,0 +1,128 @@
+# =============================================================================
+# CopLLM — Multi-Kunden Deployment (Auto-generiert)
+# NICHT MANUELL BEARBEITEN — wird von provision.py aus tenants-DB generiert
+#
+# Regenerieren: python scripts/provision.py generate
+# =============================================================================
+
+services:
+
+  # =========================================================================
+  # SHARED SERVICES (1x fuer alle Kunden)
+  # =========================================================================
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: copllm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile.multi:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - copllm-net
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: copllm-litellm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LITELLM_PORT:-4000}:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - LITELLM_DATABASE_URL=${LITELLM_DATABASE_URL}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: copllm-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.clx-digital.de/
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-change-me}
+      - GENERIC_TIMEZONE=Europe/Berlin
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-ollama}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-768}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - GOOGLE_EMBEDDING_MODEL=${GOOGLE_EMBEDDING_MODEL:-gemini-embedding-001}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # =========================================================================
+  # KUNDEN-INSTANZEN (auto-generiert aus tenants-Datenbank)
+  # =========================================================================
+{% for tenant in tenants %}
+
+  # --- {{ tenant.display_name }} ({{ tenant.domain }}) ---
+  webui-{{ tenant.id }}:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: copllm-webui-{{ tenant.id }}
+    restart: unless-stopped
+    depends_on:
+      - litellm
+    environment:
+      - OPENAI_API_BASE_URLS=http://litellm:4000/v1
+      - OPENAI_API_KEYS={{ tenant.litellm_api_key or '${LITELLM_MASTER_KEY}' }}
+      - OLLAMA_BASE_URLS=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - RAG_EMBEDDING_ENGINE=ollama
+      - RAG_EMBEDDING_MODEL=${EMBEDDING_MODEL:-nomic-embed-text}
+      - CHUNK_SIZE=${CHUNK_SIZE:-500}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
+      - WEBUI_SECRET_KEY={{ tenant.webui_secret }}
+      - ENABLE_SIGNUP=false
+      - WEBUI_NAME={{ tenant.display_name }} - KI Assistent
+    volumes:
+      - webui-data-{{ tenant.id }}:/app/backend/data
+    networks:
+      - copllm-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+{% endfor %}
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  caddy-data:
+  caddy-config:
+  n8n-data:
+{% for tenant in tenants %}
+  webui-data-{{ tenant.id }}:
+{% endfor %}
+
+# =============================================================================
+# NETZWERK
+# =============================================================================
+networks:
+  copllm-net:
+    driver: bridge

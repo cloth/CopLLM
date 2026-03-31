@@ -21,6 +21,8 @@ und Kunden-Setups. Ziel: Der Kunden-Rollout soll so automatisiert wie moeglich w
 | [07-demo-skript.md](07-demo-skript.md) | Demo fuer Kundengespraeche |
 | [08-troubleshooting.md](08-troubleshooting.md) | Bekannte Probleme + Loesungen |
 | [09-hacks-und-learnings.md](09-hacks-und-learnings.md) | Erfahrungen, Tricks, Workarounds |
+| [10-skalierung.md](10-skalierung.md) | Skalierung auf 1000+ Kunden (3-Phasen-Plan) |
+| [11-llm-kosten-monitoring.md](11-llm-kosten-monitoring.md) | LLM-Kosten-Monitoring, Usage Dashboard, Abrechnung |
 
 ## Konvention
 

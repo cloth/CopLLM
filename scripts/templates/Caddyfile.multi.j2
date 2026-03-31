@@ -1,0 +1,50 @@
+# =============================================================================
+# CopLLM — Multi-Kunden Caddy Config (Auto-generiert)
+# NICHT MANUELL BEARBEITEN — wird von provision.py aus tenants-DB generiert
+#
+# Regenerieren: python scripts/provision.py generate
+# =============================================================================
+
+# Shared Security Headers
+(security_headers) {
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+}
+
+# Shared Logging
+(access_log) {
+    log {
+        output file /data/access-{args[0]}.log {
+            roll_size 10mb
+            roll_keep 3
+        }
+    }
+}
+
+# =========================================================================
+# n8n (Workflow-Editor — nur intern)
+# =========================================================================
+n8n.clx-digital.de {
+    import security_headers
+    import access_log n8n
+
+    reverse_proxy copllm-n8n:5678
+}
+
+# =========================================================================
+# Kunden-Domains (auto-generiert aus tenants-Datenbank)
+# =========================================================================
+{% for tenant in tenants %}
+# --- {{ tenant.display_name }} ---
+{{ tenant.domain }} {
+    import security_headers
+    import access_log {{ tenant.id }}
+
+    reverse_proxy copllm-webui-{{ tenant.id }}:8080
+}
+{% endfor %}
