@@ -111,6 +111,7 @@ nav:
       - LLM-Kosten: 11-llm-kosten-monitoring.md
   - Integrationen: 12-integrationen.md
   - Architektur: architecture.md
+  - Kalkulation: business-model.md
   - Blog:
       - blog/index.md
   - Tags: tags.md
