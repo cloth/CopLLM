@@ -2,7 +2,9 @@
 
 **Corporate AI Workspace** — RAG-basierte KI-Assistenten fuer KMU im DACH-Raum.
 
-Firmendokumente aus Google Drive oder OneDrive werden automatisch eingelesen, in Chunks zerlegt, vektorisiert und in einer Datenbank gespeichert. Mitarbeiter stellen Fragen im Chat und bekommen Antworten auf Basis der echten Firmendokumente — mit Quellenangabe, ohne Halluzination.
+**Dokumentation:** https://cloth.github.io/CopLLM/
+
+Firmendokumente aus Google Drive, OneDrive, Nextcloud, Email und mehr werden automatisch eingelesen, in Chunks zerlegt, vektorisiert und in einer Datenbank gespeichert. Mitarbeiter stellen Fragen im Chat und bekommen Antworten auf Basis der echten Firmendokumente — mit Quellenangabe, ohne Halluzination.
 
 ## Was ist das hier?
 
