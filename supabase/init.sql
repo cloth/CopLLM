@@ -2,6 +2,12 @@
 -- CopLLM — Supabase pgvector Schema
 -- Ausfuehren mit: psql $SUPABASE_DB_URL -f supabase/init.sql
 -- Oder im Supabase SQL Editor einfuegen
+--
+-- Demo-Account-Erweiterungen:
+--   - trial_starts_at / trial_expires_at fuer 7-Tage-Demo-Tracking
+--   - litellm_key_id fuer sauberes Key-Loeschen bei Ablauf
+--   - Trigger: enforce_demo_upload_limit (max. 10 Dateien pro Demo-Tenant)
+--   - View: demo_overview fuer Admin-Dashboard
 -- =============================================================================
 
 -- 1. Extensions aktivieren
@@ -21,6 +27,10 @@ CREATE TABLE IF NOT EXISTS tenants (
     drive_folder_id TEXT,
     monthly_budget_eur NUMERIC DEFAULT 50,
     config JSONB DEFAULT '{}',                  -- flexible Kunden-Konfiguration
+    -- Demo-Account-Felder
+    trial_starts_at TIMESTAMPTZ,               -- Zeitpunkt der Demo-Aktivierung
+    trial_expires_at TIMESTAMPTZ,              -- Ablauf der Demo (Start + 7 Tage)
+    litellm_key_id TEXT,                       -- LiteLLM Token-ID fuer Key-Loeschung
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -261,3 +271,64 @@ CREATE TRIGGER set_updated_at_tenants
     BEFORE UPDATE ON tenants
     FOR EACH ROW
     EXECUTE FUNCTION update_modified_column();
+
+-- =============================================================================
+-- DEMO-ACCOUNT-ERWEITERUNGEN
+-- =============================================================================
+
+-- 13. Trigger: Upload-Limit fuer Demo-Tenants (max. 10 Dateien)
+-- Bestandskunden (plan != 'demo') sind nicht betroffen.
+CREATE OR REPLACE FUNCTION check_demo_upload_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+    tenant_plan  TEXT;
+    file_count   INT;
+BEGIN
+    SELECT plan INTO tenant_plan
+    FROM tenants WHERE id = NEW.tenant_id;
+
+    IF tenant_plan = 'demo' THEN
+        SELECT COUNT(DISTINCT file_name) INTO file_count
+        FROM documents WHERE tenant_id = NEW.tenant_id;
+
+        IF file_count >= 10 THEN
+            RAISE EXCEPTION
+                'Demo-Limit erreicht: max. 10 Dateien pro Demo-Account (tenant: %)',
+                NEW.tenant_id;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS enforce_demo_upload_limit ON documents;
+CREATE TRIGGER enforce_demo_upload_limit
+    BEFORE INSERT ON documents
+    FOR EACH ROW
+    EXECUTE FUNCTION check_demo_upload_limit();
+
+-- 14. View: Demo-Dashboard (Admin-Uebersicht aller Trial-Accounts)
+-- Aufruf: SELECT * FROM demo_overview;
+CREATE OR REPLACE VIEW demo_overview AS
+SELECT
+    t.id                                                    AS tenant_id,
+    t.display_name,
+    t.status,
+    t.trial_starts_at::date                                 AS demo_start,
+    t.trial_expires_at::date                                AS demo_ablauf,
+    CASE
+        WHEN t.trial_expires_at > NOW()
+        THEN EXTRACT(DAY FROM (t.trial_expires_at - NOW()))::INT || ' Tage'
+        ELSE 'abgelaufen'
+    END                                                     AS verbleibend,
+    COUNT(DISTINCT d.file_name)                             AS hochgeladene_dateien,
+    COUNT(d.id)                                             AS chunks_gesamt,
+    MAX(d.created_at)                                       AS letzter_upload
+FROM tenants t
+LEFT JOIN documents d ON d.tenant_id = t.id
+WHERE t.plan = 'demo' OR t.status = 'trial'
+GROUP BY
+    t.id, t.display_name, t.status,
+    t.trial_starts_at, t.trial_expires_at
+ORDER BY t.trial_expires_at DESC;

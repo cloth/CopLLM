@@ -38,6 +38,10 @@ services:
       - CHUNK_OVERLAP=${CHUNK_OVERLAP:-75}
       - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET_KEY:-change-me}
       - ENABLE_SIGNUP=false
+      # Branding
+      - WEBUI_NAME=${WEBUI_NAME:-CLX Digital KI}
+      - SHOW_ADMIN_DETAILS=false
+      - ENABLE_COMMUNITY_SHARING=false
     volumes:
       - open-webui-data:/app/backend/data
     networks:

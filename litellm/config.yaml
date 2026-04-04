@@ -44,6 +44,16 @@ model_list:
       max_tokens: 4096
       temperature: 0.3
 
+  # --- Demo-Modell (eingeschraenkt, nur fuer Demo-Accounts) ---
+  # Virtual Keys mit plan=demo werden auf dieses Modell beschraenkt.
+  # Kuerzer (2048 Tokens) und guenstiger als Sonnet.
+  - model_name: "claude-haiku-demo"
+    litellm_params:
+      model: "anthropic/claude-haiku-4-5-20251001"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+      max_tokens: 2048
+      temperature: 0.3
+
 # --- Router-Einstellungen ---
 router_settings:
   routing_strategy: "cost-based-routing"
@@ -53,7 +63,11 @@ router_settings:
     - "claude-opus": ["claude-sonnet", "llama-local"]
     - "claude-sonnet": ["llama-local"]
     - "claude-haiku": ["llama-local"]
+    - "claude-haiku-demo": ["llama-local"]
     - "copllm-default": ["llama-local"]
+
+  # Globales Sicherheitsnetz gegen missbräuchliche Nutzung
+  max_parallel_requests: 50
 
   num_retries: 2
   retry_after: 5
@@ -83,4 +97,11 @@ general_settings:
   # Datenbank fuer Virtual Keys + Per-Kunde Budget-Tracking
   # Ermoeglicht: POST /key/generate, GET /spend/logs, Per-Key Budgets
   # Tabellen werden automatisch erstellt beim ersten Start
+  # WICHTIG: Muss gesetzt sein damit Demo-Budget-Limits funktionieren!
   database_url: "os.environ/LITELLM_DATABASE_URL"
+
+  # Alerting bei Kostenüberschreitung (optional, aber empfohlen)
+  # Sendet Slack-Nachricht wenn globales Budget 60% erreicht (300 EUR)
+  alerting: ["slack"]
+  alerting_threshold: 300
+  slack_alerting_url: "os.environ/SLACK_WEBHOOK_URL"

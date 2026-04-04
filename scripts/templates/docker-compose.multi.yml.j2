@@ -101,6 +101,16 @@ services:
       - WEBUI_SECRET_KEY={{ tenant.webui_secret }}
       - ENABLE_SIGNUP=false
       - WEBUI_NAME={{ tenant.display_name }} - KI Assistent
+      - SHOW_ADMIN_DETAILS=false
+      - ENABLE_COMMUNITY_SHARING=false
+{% if tenant.plan == 'demo' %}
+      # Demo-Einschraenkungen: nur Haiku sichtbar, Banner mit Hinweis
+      - ENABLE_MODEL_FILTER=true
+      - MODEL_FILTER_LIST=claude-haiku
+      - WEBUI_BANNER_ENABLED=true
+      - WEBUI_BANNER_CONTENT=Demo-Account &bull; 7-Tage-Testversion &bull; Powered by CLX Digital
+      - WEBUI_BANNER_BACKGROUND_COLOR=#1e3a5f
+{% endif %}
     volumes:
       - webui-data-{{ tenant.id }}:/app/backend/data
     networks:
