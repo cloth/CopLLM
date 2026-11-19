@@ -42,7 +42,7 @@ services:
 
   # --- LLM Router (shared, alle Kunden nutzen denselben) ---
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:v1.110.1
     container_name: copllm-litellm
     restart: unless-stopped
     ports:
