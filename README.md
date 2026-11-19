@@ -94,6 +94,37 @@ docker compose -f docker-compose.quick.yml up -d
 | **Weg C** — Produktion | `docker-compose.yml` | Open WebUI + LiteLLM + Caddy |
 | **Multi-Kunden** | `docker-compose.multi.yml` | Shared Services + N Kunden-Instanzen |
 
+## Sicherheits-Pflichttest vor Start/Deployment
+
+**Hintergrund:** [CVE-2026-40217](https://nvd.nist.gov/vuln/detail/CVE-2026-40217) / [GHSA-wxxx-gvqv-xp7p](https://github.com/BerriAI/litellm/security/advisories/GHSA-wxxx-gvqv-xp7p) — Sandbox-Escape in `POST /guardrails/test_custom_code`.
+
+Vor **jeder Reaktivierung** und **jedem neuen Deployment** von CopLLM ist folgender Test **Pflicht**:
+
+1. Stack mit aktuellem Image-Stand starten:
+   ```bash
+   docker compose pull
+   docker compose up -d
+   ```
+   (Multi-Kunden: `-f docker-compose.multi.yml` verwenden.)
+2. **Laufende LiteLLM-Version prüfen** — mindestens **v1.110.1** mit dem in `docker-compose.yml` / `docker-compose.multi.yml` gepinnten Digest (`ghcr.io/berriai/litellm:v1.110.1@sha256:…`).
+3. **Open WebUI:** Login.
+4. **Chat** über ein LiteLLM-Modell (z. B. `copllm-default`).
+5. **RAG:** Dokument importieren und eine Referenzfrage stellen.
+6. **`POST /guardrails/test_custom_code` muss abgewiesen werden** (LiteLLM typisch nur auf `127.0.0.1:${LITELLM_PORT:-4000}`):
+   ```bash
+   curl -s -o /dev/null -w "%{http_code}" -X POST \
+     -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{}' \
+     http://127.0.0.1:4000/guardrails/test_custom_code
+   ```
+7. **Logs prüfen:** nach Aufrufen von `/guardrails/test_custom_code` suchen, z. B.:
+   ```bash
+   docker logs copllm-litellm 2>&1 | grep 'test_custom_code'
+   ```
+
+Erst wenn alle Schritte bestanden sind, den Stack produktiv nutzen oder freigeben.
+
 ## Repo-Struktur
 
 ```
